@@ -64,6 +64,7 @@ public class AdviceReader {
                     data.timestamp = System.currentTimeMillis();
                     data.fromJson = false;
                     data.status = "ok";
+                    data.overlayVisibility = true;
                     data.stale = isFileStale(jsonFilePath);
                     onAdviceChanged.accept(data);
                 }
@@ -78,6 +79,7 @@ public class AdviceReader {
                     data.timestamp = System.currentTimeMillis();
                     data.fromJson = false;
                     data.status = "ok";
+                    data.overlayVisibility = true;
                     data.stale = isFileStale(txtFilePath);
                     onAdviceChanged.accept(data);
                 }
@@ -129,7 +131,7 @@ public class AdviceReader {
     }
 
     private boolean isJsonStale(AdviceData data) {
-        if (data.overlayVisibility && data.timestamp > 0) {
+        if (data.timestamp > 0) {
             long age = System.currentTimeMillis() - data.timestamp;
             return age > config.maxDataAgeMs;
         }
