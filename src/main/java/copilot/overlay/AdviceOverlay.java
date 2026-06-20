@@ -20,11 +20,13 @@ public class AdviceOverlay {
     private static final Color BORDER_COLOR = new Color(0.3f, 0.3f, 0.3f, 0.9f);
     private static final Color LABEL_COLOR = Color.CYAN;
     private static final Color TEXT_COLOR = Color.WHITE;
+    private static final Color ERROR_COLOR = new Color(0.9f, 0.4f, 0.4f, 1.0f);
 
     private final OverlayConfig config;
     private volatile AdviceReader.AdviceData currentAdvice = new AdviceReader.AdviceData();
     private ShapeRenderer shapeRenderer;
-    private long lastFreshTime;
+    private boolean fadingOut;
+    private long fadeStartTime;
     private float alphaFactor;
 
     public AdviceOverlay(OverlayConfig config) {
@@ -77,21 +79,32 @@ public class AdviceOverlay {
         float textX = x + BOX_PADDING;
         float textY = boxTop - BOX_PADDING - lineSpacing;
 
-        if (currentAdvice == null || currentAdvice.rawText.isEmpty()) {
+        if (currentAdvice == null || "loading".equals(currentAdvice.status)) {
             FontHelper.renderFontLeftTopAligned(sb, bodyFont,
-                    getWaitingText(), textX, textY, fade(Color.GRAY));
+                    getLoadingText(), textX, boxTop - BOX_PADDING, fade(Color.GRAY));
             return;
         }
 
+        if (currentAdvice.recommendation.isEmpty()
+                && currentAdvice.reason.isEmpty()
+                && currentAdvice.risk.isEmpty()
+                && currentAdvice.comment.isEmpty()) {
+            return;
+        }
+
+        boolean isError = "error".equals(currentAdvice.status);
+        Color labelCol = isError ? fade(ERROR_COLOR) : fade(LABEL_COLOR);
+        Color textCol = isError ? fade(ERROR_COLOR) : fade(TEXT_COLOR);
+
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelRecommendation(), currentAdvice.recommendation, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
+                getLabelRecommendation(), currentAdvice.recommendation, labelCol, textCol, textX, textY);
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelReason(), currentAdvice.reason, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
+                getLabelReason(), currentAdvice.reason, labelCol, textCol, textX, textY);
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelRisk(), currentAdvice.risk, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
+                getLabelRisk(), currentAdvice.risk, labelCol, textCol, textX, textY);
         if (currentAdvice.comment != null && !currentAdvice.comment.isEmpty()) {
             drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                    getLabelComment(), currentAdvice.comment, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
+                    getLabelComment(), currentAdvice.comment, labelCol, textCol, textX, textY);
         }
     }
 
@@ -102,7 +115,9 @@ public class AdviceOverlay {
 
         float h = BOX_PADDING * 2 + lineSpacing;
         AdviceReader.AdviceData adv = currentAdvice;
-        if (adv == null || adv.rawText.isEmpty()) return BOX_PADDING * 2 + lineSpacing;
+        if (adv == null || "loading".equals(adv.status)) return BOX_PADDING * 2 + lineSpacing;
+        if (adv.recommendation.isEmpty() && adv.reason.isEmpty()
+                && adv.risk.isEmpty() && adv.comment.isEmpty()) return BOX_PADDING * 2 + lineSpacing;
         h += fieldHeight(bodyFont, lineSpacing, contentMaxWidth, adv.recommendation);
         h += fieldHeight(bodyFont, lineSpacing, contentMaxWidth, adv.reason);
         h += fieldHeight(bodyFont, lineSpacing, contentMaxWidth, adv.risk);
@@ -131,25 +146,38 @@ public class AdviceOverlay {
     }
 
     private void computeAlphaFactor() {
-        long now = System.currentTimeMillis();
-        AdviceReader.AdviceData adv = currentAdvice;
-
-        if (adv != null && !adv.rawText.isEmpty()
-                && (now - adv.timestamp) < config.staleThresholdMs) {
-            lastFreshTime = now;
-            alphaFactor = 1.0f;
-            return;
-        }
-
-        if (lastFreshTime == 0) {
+        if (!config.visible) {
             alphaFactor = 0;
             return;
         }
 
-        long elapsed = now - lastFreshTime - config.staleThresholdMs;
-        if (elapsed <= 0) {
+        AdviceReader.AdviceData adv = currentAdvice;
+        if (adv == null || adv.stale) {
+            alphaFactor = 0;
+            return;
+        }
+
+        if ("loading".equals(adv.status)) {
             alphaFactor = 1.0f;
-        } else if (elapsed >= config.fadeDurationMs) {
+            fadingOut = false;
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+
+        if (adv.overlayVisibility) {
+            fadingOut = false;
+            alphaFactor = 1.0f;
+            return;
+        }
+
+        if (!fadingOut) {
+            fadingOut = true;
+            fadeStartTime = now;
+        }
+
+        long elapsed = now - fadeStartTime;
+        if (elapsed >= config.fadeDurationMs) {
             alphaFactor = 0;
         } else {
             alphaFactor = 1.0f - (float) elapsed / config.fadeDurationMs;
@@ -167,8 +195,8 @@ public class AdviceOverlay {
         return lang == GameLanguage.ZHS || lang == GameLanguage.ZHT;
     }
 
-    private static String getWaitingText() {
-        return isChinese() ? "等待建议..." : "Waiting for advice...";
+    private static String getLoadingText() {
+        return isChinese() ? "少女祈祷中..." : "Waiting for advice...";
     }
 
     private static String getLabelRecommendation() {
