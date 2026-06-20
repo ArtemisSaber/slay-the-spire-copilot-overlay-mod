@@ -21,13 +21,23 @@ public class AdviceOverlay {
     private static final Color LABEL_COLOR = Color.CYAN;
     private static final Color TEXT_COLOR = Color.WHITE;
     private static final Color ERROR_COLOR = new Color(0.9f, 0.4f, 0.4f, 1.0f);
+    private static final float FADE_IN_MS = 400f;
+    private static final float CONTENT_DIP_MS = 200f;
+    private static final float CONTENT_DIP_MIN = 0.7f;
+    private static final float PULSE_CYCLE_MS = 1500f;
+    private static final float PULSE_MIN = 0.4f;
+    private static final float ELLIPSIS_CYCLE_MS = 500f;
 
     private final OverlayConfig config;
     private volatile AdviceReader.AdviceData currentAdvice = new AdviceReader.AdviceData();
     private ShapeRenderer shapeRenderer;
+    private boolean fadingIn;
+    private long fadeInStartTime;
+    private float fadeInDurationMs;
     private boolean fadingOut;
-    private long fadeStartTime;
+    private long fadeOutStartTime;
     private float alphaFactor;
+    private String lastContentHash = "";
 
     public AdviceOverlay(OverlayConfig config) {
         this.config = config;
@@ -80,8 +90,11 @@ public class AdviceOverlay {
         float textY = boxTop - BOX_PADDING - lineSpacing;
 
         if (currentAdvice == null || "loading".equals(currentAdvice.status)) {
+            float pulse = getPulseAlpha();
+            Color c = fade(Color.GRAY);
+            c.a *= pulse;
             FontHelper.renderFontLeftTopAligned(sb, bodyFont,
-                    getLoadingText(), textX, boxTop - BOX_PADDING, fade(Color.GRAY));
+                    getAnimatedLoadingText(), textX, boxTop - BOX_PADDING, c);
             return;
         }
 
@@ -147,41 +160,78 @@ public class AdviceOverlay {
 
     private void computeAlphaFactor() {
         if (!config.visible) {
-            alphaFactor = 0;
+            resetFade();
             return;
         }
 
         AdviceReader.AdviceData adv = currentAdvice;
         if (adv == null || adv.stale) {
-            alphaFactor = 0;
+            resetFade();
             return;
         }
 
-        if ("loading".equals(adv.status)) {
-            alphaFactor = 1.0f;
-            fadingOut = false;
-            return;
-        }
+        String contentHash = adv.status + "|" + adv.recommendation + "|"
+                + adv.reason + "|" + adv.risk + "|" + adv.comment;
+        boolean contentChanged = !contentHash.equals(lastContentHash);
+        lastContentHash = contentHash;
 
+        boolean shouldShow = adv.overlayVisibility || "loading".equals(adv.status);
         long now = System.currentTimeMillis();
 
-        if (adv.overlayVisibility) {
-            fadingOut = false;
-            alphaFactor = 1.0f;
+        if (!shouldShow) {
+            if (!fadingOut) {
+                fadingOut = true;
+                fadeOutStartTime = now;
+            }
+            fadingIn = false;
+            long elapsed = now - fadeOutStartTime;
+            if (elapsed >= config.fadeDurationMs) {
+                alphaFactor = 0;
+            } else {
+                alphaFactor = 1.0f - (float) elapsed / config.fadeDurationMs;
+            }
             return;
         }
 
-        if (!fadingOut) {
-            fadingOut = true;
-            fadeStartTime = now;
+        fadingOut = false;
+
+        boolean isFullFadeIn = fadingIn && fadeInDurationMs == FADE_IN_MS;
+
+        if (!fadingIn && alphaFactor < 0.1f) {
+            fadingIn = true;
+            fadeInStartTime = now;
+            fadeInDurationMs = FADE_IN_MS;
+        } else if (contentChanged && !"loading".equals(adv.status) && !isFullFadeIn) {
+            fadingIn = true;
+            fadeInStartTime = now;
+            fadeInDurationMs = CONTENT_DIP_MS;
         }
 
-        long elapsed = now - fadeStartTime;
-        if (elapsed >= config.fadeDurationMs) {
-            alphaFactor = 0;
-        } else {
-            alphaFactor = 1.0f - (float) elapsed / config.fadeDurationMs;
+        if (fadingIn) {
+            long elapsed = now - fadeInStartTime;
+            if (elapsed >= fadeInDurationMs) {
+                fadingIn = false;
+                alphaFactor = 1.0f;
+            } else if (fadeInDurationMs == CONTENT_DIP_MS) {
+                float t = (float) elapsed / CONTENT_DIP_MS;
+                if (t < 0.5f) {
+                    alphaFactor = 1.0f - (1.0f - CONTENT_DIP_MIN) * (t / 0.5f);
+                } else {
+                    alphaFactor = CONTENT_DIP_MIN + (1.0f - CONTENT_DIP_MIN) * ((t - 0.5f) / 0.5f);
+                }
+            } else {
+                alphaFactor = (float) elapsed / FADE_IN_MS;
+            }
+            return;
         }
+
+        alphaFactor = 1.0f;
+    }
+
+    private void resetFade() {
+        fadingIn = false;
+        fadingOut = false;
+        alphaFactor = 0;
     }
 
     private Color fade(Color base) {
@@ -195,8 +245,21 @@ public class AdviceOverlay {
         return lang == GameLanguage.ZHS || lang == GameLanguage.ZHT;
     }
 
-    private static String getLoadingText() {
-        return isChinese() ? "少女祈祷中..." : "Waiting for advice...";
+    private static String getAnimatedLoadingText() {
+        String base = isChinese() ? "少女祈祷中" : "Waiting for advice";
+        int dots = (int) ((System.currentTimeMillis() / (long) ELLIPSIS_CYCLE_MS) % 4);
+        StringBuilder sb = new StringBuilder(base);
+        for (int i = 0; i < dots; i++) {
+            sb.append('.');
+        }
+        return sb.toString();
+    }
+
+    private static float getPulseAlpha() {
+        long now = System.currentTimeMillis();
+        double phase = (now % (long) PULSE_CYCLE_MS) / PULSE_CYCLE_MS * Math.PI * 2;
+        float raw = (float) ((Math.sin(phase) + 1.0) / 2.0);
+        return PULSE_MIN + (1.0f - PULSE_MIN) * raw;
     }
 
     private static String getLabelRecommendation() {
