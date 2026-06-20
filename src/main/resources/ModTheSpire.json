@@ -3,7 +3,7 @@
   "name": "Copilot Overlay",
   "author_list": ["StellarSaber"],
   "description": "Displays AI copilot advice as an in-game overlay. Reads output/advice.txt from the companion tool.",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "sts_version": "12-18-2022",
   "mts_version": "3.30.0",
   "dependencies": ["basemod"]
