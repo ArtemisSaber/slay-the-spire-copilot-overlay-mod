@@ -1,6 +1,6 @@
 {
   "modid": "copilotoverlay",
-  "name": "Copilot Overlay",
+  "name": "Slay the spire copilot overlay",
   "author_list": ["StellarSaber"],
   "description": "Displays AI copilot advice as an in-game overlay. Reads output/advice.txt from the companion tool.",
   "version": "0.0.1",

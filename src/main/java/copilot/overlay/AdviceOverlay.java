@@ -20,12 +20,24 @@ public class AdviceOverlay {
     private static final Color BORDER_COLOR = new Color(0.3f, 0.3f, 0.3f, 0.9f);
     private static final Color LABEL_COLOR = Color.CYAN;
     private static final Color TEXT_COLOR = Color.WHITE;
+    private static final Color ERROR_COLOR = new Color(0.9f, 0.4f, 0.4f, 1.0f);
+    private static final float FADE_IN_MS = 400f;
+    private static final float CONTENT_DIP_MS = 200f;
+    private static final float CONTENT_DIP_MIN = 0.7f;
+    private static final float PULSE_CYCLE_MS = 1500f;
+    private static final float PULSE_MIN = 0.4f;
+    private static final float ELLIPSIS_CYCLE_MS = 500f;
 
     private final OverlayConfig config;
     private volatile AdviceReader.AdviceData currentAdvice = new AdviceReader.AdviceData();
     private ShapeRenderer shapeRenderer;
-    private long lastFreshTime;
+    private boolean fadingIn;
+    private long fadeInStartTime;
+    private float fadeInDurationMs;
+    private boolean fadingOut;
+    private long fadeOutStartTime;
     private float alphaFactor;
+    private String lastContentHash = "";
 
     public AdviceOverlay(OverlayConfig config) {
         this.config = config;
@@ -77,21 +89,35 @@ public class AdviceOverlay {
         float textX = x + BOX_PADDING;
         float textY = boxTop - BOX_PADDING - lineSpacing;
 
-        if (currentAdvice == null || currentAdvice.rawText.isEmpty()) {
+        if (currentAdvice == null || "loading".equals(currentAdvice.status)) {
+            float pulse = getPulseAlpha();
+            Color c = fade(Color.GRAY);
+            c.a *= pulse;
             FontHelper.renderFontLeftTopAligned(sb, bodyFont,
-                    getWaitingText(), textX, textY, fade(Color.GRAY));
+                    getAnimatedLoadingText(), textX, boxTop - BOX_PADDING, c);
             return;
         }
 
+        if (currentAdvice.recommendation.isEmpty()
+                && currentAdvice.reason.isEmpty()
+                && currentAdvice.risk.isEmpty()
+                && currentAdvice.comment.isEmpty()) {
+            return;
+        }
+
+        boolean isError = "error".equals(currentAdvice.status);
+        Color labelCol = isError ? fade(ERROR_COLOR) : fade(LABEL_COLOR);
+        Color textCol = isError ? fade(ERROR_COLOR) : fade(TEXT_COLOR);
+
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelRecommendation(), currentAdvice.recommendation, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
+                getLabelRecommendation(), currentAdvice.recommendation, labelCol, textCol, textX, textY);
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelReason(), currentAdvice.reason, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
+                getLabelReason(), currentAdvice.reason, labelCol, textCol, textX, textY);
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelRisk(), currentAdvice.risk, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
+                getLabelRisk(), currentAdvice.risk, labelCol, textCol, textX, textY);
         if (currentAdvice.comment != null && !currentAdvice.comment.isEmpty()) {
             drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                    getLabelComment(), currentAdvice.comment, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
+                    getLabelComment(), currentAdvice.comment, labelCol, textCol, textX, textY);
         }
     }
 
@@ -102,7 +128,9 @@ public class AdviceOverlay {
 
         float h = BOX_PADDING * 2 + lineSpacing;
         AdviceReader.AdviceData adv = currentAdvice;
-        if (adv == null || adv.rawText.isEmpty()) return BOX_PADDING * 2 + lineSpacing;
+        if (adv == null || "loading".equals(adv.status)) return BOX_PADDING * 2 + lineSpacing;
+        if (adv.recommendation.isEmpty() && adv.reason.isEmpty()
+                && adv.risk.isEmpty() && adv.comment.isEmpty()) return BOX_PADDING * 2 + lineSpacing;
         h += fieldHeight(bodyFont, lineSpacing, contentMaxWidth, adv.recommendation);
         h += fieldHeight(bodyFont, lineSpacing, contentMaxWidth, adv.reason);
         h += fieldHeight(bodyFont, lineSpacing, contentMaxWidth, adv.risk);
@@ -131,29 +159,79 @@ public class AdviceOverlay {
     }
 
     private void computeAlphaFactor() {
-        long now = System.currentTimeMillis();
+        if (!config.visible) {
+            resetFade();
+            return;
+        }
+
         AdviceReader.AdviceData adv = currentAdvice;
-
-        if (adv != null && !adv.rawText.isEmpty()
-                && (now - adv.timestamp) < config.staleThresholdMs) {
-            lastFreshTime = now;
-            alphaFactor = 1.0f;
+        if (adv == null || adv.stale) {
+            resetFade();
             return;
         }
 
-        if (lastFreshTime == 0) {
-            alphaFactor = 0;
+        String contentHash = adv.status + "|" + adv.recommendation + "|"
+                + adv.reason + "|" + adv.risk + "|" + adv.comment;
+        boolean contentChanged = !contentHash.equals(lastContentHash);
+        lastContentHash = contentHash;
+
+        boolean shouldShow = adv.overlayVisibility || "loading".equals(adv.status);
+        long now = System.currentTimeMillis();
+
+        if (!shouldShow) {
+            if (!fadingOut) {
+                fadingOut = true;
+                fadeOutStartTime = now;
+            }
+            fadingIn = false;
+            long elapsed = now - fadeOutStartTime;
+            if (elapsed >= config.fadeDurationMs) {
+                alphaFactor = 0;
+            } else {
+                alphaFactor = 1.0f - (float) elapsed / config.fadeDurationMs;
+            }
             return;
         }
 
-        long elapsed = now - lastFreshTime - config.staleThresholdMs;
-        if (elapsed <= 0) {
-            alphaFactor = 1.0f;
-        } else if (elapsed >= config.fadeDurationMs) {
-            alphaFactor = 0;
-        } else {
-            alphaFactor = 1.0f - (float) elapsed / config.fadeDurationMs;
+        fadingOut = false;
+
+        boolean isFullFadeIn = fadingIn && fadeInDurationMs == FADE_IN_MS;
+
+        if (!fadingIn && alphaFactor < 0.1f) {
+            fadingIn = true;
+            fadeInStartTime = now;
+            fadeInDurationMs = FADE_IN_MS;
+        } else if (contentChanged && !"loading".equals(adv.status) && !isFullFadeIn) {
+            fadingIn = true;
+            fadeInStartTime = now;
+            fadeInDurationMs = CONTENT_DIP_MS;
         }
+
+        if (fadingIn) {
+            long elapsed = now - fadeInStartTime;
+            if (elapsed >= fadeInDurationMs) {
+                fadingIn = false;
+                alphaFactor = 1.0f;
+            } else if (fadeInDurationMs == CONTENT_DIP_MS) {
+                float t = (float) elapsed / CONTENT_DIP_MS;
+                if (t < 0.5f) {
+                    alphaFactor = 1.0f - (1.0f - CONTENT_DIP_MIN) * (t / 0.5f);
+                } else {
+                    alphaFactor = CONTENT_DIP_MIN + (1.0f - CONTENT_DIP_MIN) * ((t - 0.5f) / 0.5f);
+                }
+            } else {
+                alphaFactor = (float) elapsed / FADE_IN_MS;
+            }
+            return;
+        }
+
+        alphaFactor = 1.0f;
+    }
+
+    private void resetFade() {
+        fadingIn = false;
+        fadingOut = false;
+        alphaFactor = 0;
     }
 
     private Color fade(Color base) {
@@ -167,8 +245,21 @@ public class AdviceOverlay {
         return lang == GameLanguage.ZHS || lang == GameLanguage.ZHT;
     }
 
-    private static String getWaitingText() {
-        return isChinese() ? "等待建议..." : "Waiting for advice...";
+    private static String getAnimatedLoadingText() {
+        String base = isChinese() ? "少女祈祷中" : "A few moments later";
+        int dots = (int) ((System.currentTimeMillis() / (long) ELLIPSIS_CYCLE_MS) % 4);
+        StringBuilder sb = new StringBuilder(base);
+        for (int i = 0; i < dots; i++) {
+            sb.append('.');
+        }
+        return sb.toString();
+    }
+
+    private static float getPulseAlpha() {
+        long now = System.currentTimeMillis();
+        double phase = (now % (long) PULSE_CYCLE_MS) / PULSE_CYCLE_MS * Math.PI * 2;
+        float raw = (float) ((Math.sin(phase) + 1.0) / 2.0);
+        return PULSE_MIN + (1.0f - PULSE_MIN) * raw;
     }
 
     private static String getLabelRecommendation() {

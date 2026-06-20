@@ -20,7 +20,7 @@ public class CopilotOverlayMod implements RenderSubscriber {
     public CopilotOverlayMod() {
         OverlayConfig config = new OverlayConfig();
         overlay = new AdviceOverlay(config);
-        reader = new AdviceReader(overlay::setAdvice);
+        reader = new AdviceReader(overlay::setAdvice, config);
         reader.start();
     }
 
