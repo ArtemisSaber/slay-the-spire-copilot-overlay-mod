@@ -246,7 +246,7 @@ public class AdviceOverlay {
     }
 
     private static String getAnimatedLoadingText() {
-        String base = isChinese() ? "少女祈祷中" : "Waiting for advice";
+        String base = isChinese() ? "少女祈祷中" : "A few moments later";
         int dots = (int) ((System.currentTimeMillis() / (long) ELLIPSIS_CYCLE_MS) % 4);
         StringBuilder sb = new StringBuilder(base);
         for (int i = 0; i < dots; i++) {
