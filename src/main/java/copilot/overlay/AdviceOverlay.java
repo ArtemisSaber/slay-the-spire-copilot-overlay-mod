@@ -24,6 +24,8 @@ public class AdviceOverlay {
     private final OverlayConfig config;
     private volatile AdviceReader.AdviceData currentAdvice = new AdviceReader.AdviceData();
     private ShapeRenderer shapeRenderer;
+    private long lastFreshTime;
+    private float alphaFactor;
 
     public AdviceOverlay(OverlayConfig config) {
         this.config = config;
@@ -35,6 +37,9 @@ public class AdviceOverlay {
 
     public void render(SpriteBatch sb) {
         if (!config.visible) return;
+
+        computeAlphaFactor();
+        if (alphaFactor <= 0) return;
 
         float x = Settings.WIDTH - BOX_WIDTH - config.positionX;
         float y = Settings.HEIGHT - config.positionY;
@@ -54,11 +59,11 @@ public class AdviceOverlay {
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(BG_COLOR);
+        shapeRenderer.setColor(fade(BG_COLOR));
         shapeRenderer.rect(x, boxBottom, BOX_WIDTH, height);
         shapeRenderer.end();
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-        shapeRenderer.setColor(BORDER_COLOR);
+        shapeRenderer.setColor(fade(BORDER_COLOR));
         shapeRenderer.rect(x, boxBottom, BOX_WIDTH, height);
         shapeRenderer.end();
 
@@ -74,19 +79,19 @@ public class AdviceOverlay {
 
         if (currentAdvice == null || currentAdvice.rawText.isEmpty()) {
             FontHelper.renderFontLeftTopAligned(sb, bodyFont,
-                    getWaitingText(), textX, textY, Color.GRAY);
+                    getWaitingText(), textX, textY, fade(Color.GRAY));
             return;
         }
 
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelRecommendation(), currentAdvice.recommendation, textX, textY);
+                getLabelRecommendation(), currentAdvice.recommendation, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelReason(), currentAdvice.reason, textX, textY);
+                getLabelReason(), currentAdvice.reason, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
         textY = drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                getLabelRisk(), currentAdvice.risk, textX, textY);
+                getLabelRisk(), currentAdvice.risk, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
         if (currentAdvice.comment != null && !currentAdvice.comment.isEmpty()) {
             drawField(sb, bodyFont, lineSpacing, contentMaxWidth,
-                    getLabelComment(), currentAdvice.comment, textX, textY);
+                    getLabelComment(), currentAdvice.comment, fade(LABEL_COLOR), fade(TEXT_COLOR), textX, textY);
         }
     }
 
@@ -113,15 +118,48 @@ public class AdviceOverlay {
     }
 
     private float drawField(SpriteBatch sb, BitmapFont font, float lineSpacing, float maxWidth,
-                            String label, String value, float x, float y) {
+                            String label, String value, Color labelColor, Color textColor,
+                            float x, float y) {
         if (value == null || value.isEmpty()) return y;
-        FontHelper.renderFontLeftTopAligned(sb, font, label + ":", x, y, LABEL_COLOR);
+        FontHelper.renderFontLeftTopAligned(sb, font, label + ":", x, y, labelColor);
         y -= lineSpacing;
-        FontHelper.renderSmartText(sb, font, value, x + CONTENT_INDENT, y, maxWidth, lineSpacing, TEXT_COLOR);
+        FontHelper.renderSmartText(sb, font, value, x + CONTENT_INDENT, y, maxWidth, lineSpacing, textColor);
         float contentHeight = lineSpacing
                 - FontHelper.getSmartHeight(font, value, maxWidth, lineSpacing);
         y -= contentHeight + FIELD_GAP;
         return y;
+    }
+
+    private void computeAlphaFactor() {
+        long now = System.currentTimeMillis();
+        AdviceReader.AdviceData adv = currentAdvice;
+
+        if (adv != null && !adv.rawText.isEmpty()
+                && (now - adv.timestamp) < config.staleThresholdMs) {
+            lastFreshTime = now;
+            alphaFactor = 1.0f;
+            return;
+        }
+
+        if (lastFreshTime == 0) {
+            alphaFactor = 0;
+            return;
+        }
+
+        long elapsed = now - lastFreshTime - config.staleThresholdMs;
+        if (elapsed <= 0) {
+            alphaFactor = 1.0f;
+        } else if (elapsed >= config.fadeDurationMs) {
+            alphaFactor = 0;
+        } else {
+            alphaFactor = 1.0f - (float) elapsed / config.fadeDurationMs;
+        }
+    }
+
+    private Color fade(Color base) {
+        Color c = base.cpy();
+        c.a *= alphaFactor;
+        return c;
     }
 
     private static boolean isChinese() {

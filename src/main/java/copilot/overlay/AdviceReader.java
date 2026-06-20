@@ -47,6 +47,7 @@ public class AdviceReader {
             if (!content.equals(lastReadContent)) {
                 lastReadContent = content;
                 AdviceData data = parseAdvice(content);
+                data.timestamp = System.currentTimeMillis();
                 onAdviceChanged.accept(data);
             }
         } catch (IOException ignored) {
@@ -96,5 +97,6 @@ public class AdviceReader {
         public String reason = "";
         public String risk = "";
         public String comment = "";
+        public long timestamp;
     }
 }
