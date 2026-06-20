@@ -87,14 +87,14 @@ public class AdviceOverlay {
         float contentMaxWidth = BOX_WIDTH - BOX_PADDING * 2 - CONTENT_INDENT;
 
         float textX = x + BOX_PADDING;
-        float textY = boxTop - BOX_PADDING - lineSpacing;
+        float textY = boxTop - BOX_PADDING;
 
         if (currentAdvice == null || "loading".equals(currentAdvice.status)) {
             float pulse = getPulseAlpha();
             Color c = fade(Color.GRAY);
             c.a *= pulse;
             FontHelper.renderFontLeftTopAligned(sb, bodyFont,
-                    getAnimatedLoadingText(), textX, boxTop - BOX_PADDING, c);
+                    getAnimatedLoadingText(), textX, textY, c);
             return;
         }
 
@@ -246,7 +246,7 @@ public class AdviceOverlay {
     }
 
     private static String getAnimatedLoadingText() {
-        String base = isChinese() ? "少女祈祷中" : "A few moments later";
+        String base = isChinese() ? "涅奥思考中" : "Neow is thinking";
         int dots = (int) ((System.currentTimeMillis() / (long) ELLIPSIS_CYCLE_MS) % 4);
         StringBuilder sb = new StringBuilder(base);
         for (int i = 0; i < dots; i++) {
