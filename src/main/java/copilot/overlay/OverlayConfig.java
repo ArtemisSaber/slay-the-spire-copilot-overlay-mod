@@ -7,7 +7,7 @@ public class OverlayConfig {
     public boolean visible = true;
     public long maxDataAgeMs = 60_000;
     public float fadeDurationMs = 2_000;
-    public int hotkeyPrimary = com.badlogic.gdx.Input.Keys.F2;
+    public int hotkeyPrimary = com.badlogic.gdx.Input.Keys.F8;
     public int hotkeyModifier = com.badlogic.gdx.Input.Keys.CONTROL_LEFT;
     public boolean hideDuringCombat = true;
 }

@@ -48,6 +48,10 @@ public class AdviceReader {
         scheduler.shutdown();
     }
 
+    public Path getOutputDir() {
+        return jsonFilePath.getParent();
+    }
+
     private void poll() {
         try {
             if (Files.exists(jsonFilePath)) {
@@ -122,6 +126,12 @@ public class AdviceReader {
                 data.reason = advice.getString("reason", "");
                 data.risk = advice.getString("risk", "");
                 data.comment = advice.getString("commentary", "");
+            }
+
+            JsonValue autoplay = root.get("autoplay");
+            if (autoplay != null) {
+                data.autoplayMode = autoplay.getString("mode", null);
+                data.autoplayStatus = autoplay.getString("status", null);
             }
 
             return data;
@@ -206,5 +216,7 @@ public class AdviceReader {
         public String character = null;
         public boolean fromJson = false;
         public boolean stale = false;
+        public String autoplayMode = null;
+        public String autoplayStatus = null;
     }
 }
